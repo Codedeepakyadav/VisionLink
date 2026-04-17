@@ -1,45 +1,69 @@
 import streamlit as st
-import google.generativeai as genai
+import requests
+import json
 from datetime import datetime
 
-# 1. Setup API Key
-if "GEMINI_API_KEY" not in st.secrets:
-    st.error("Please add GEMINI_API_KEY to your Streamlit Secrets!")
+# --- SETUP ---
+st.set_page_config(page_title="Idea Vault", page_icon="💡")
+
+# Ensure API Key is present in Streamlit Secrets
+if "OPENROUTER_API_KEY" not in st.secrets:
+    st.error("Please add OPENROUTER_API_KEY to your Streamlit Secrets!")
     st.stop()
 
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 
-st.set_page_config(page_title="Simple Idea Vault", page_icon="💡")
-
-st.title("💡 Simple Idea Vault")
-
-idea_text = st.text_area("What's your idea?", placeholder="Type here...", height=150)
-
-if st.button("Generate Roadmap"):
-    if idea_text:
-        with st.spinner("AI is thinking..."):
-            try:
-                # Use 'gemini-1.5-flash' - it's the most compatible
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                
-                prompt = f"Provide a business roadmap for this idea in Hinglish: {idea_text}"
-                
-                response = model.generate_content(prompt)
-                
-                # Check if response exists
-                if response.text:
-                    st.subheader("Your AI Roadmap")
-                    st.markdown(response.text)
-                    
-                    # Download Button
-                    st.download_button(
-                        label="📥 Download & Save Idea",
-                        data=f"IDEA:\n{idea_text}\n\nROADMAP:\n{response.text}",
-                        file_name=f"roadmap_{datetime.now().strftime('%Y%m%d')}.txt",
-                        mime="text/plain"
-                    )
-            except Exception as e:
-                # This will tell you exactly what is wrong (Region, Key, or Model)
-                st.error(f"AI Error: {e}")
+def get_roadmap_from_openrouter(idea):
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    
+    payload = {
+        "model": "google/gemini-2.5-flash", # You can also change this to "meta-llama/llama-3.3-70b-instruct" if you want
+        "messages": [
+            {
+                "role": "user", 
+                "content": f"Provide a practical business roadmap for this idea in Hinglish (Hindi + English): {idea}"
+            }
+        ]
+    }
+    
+    response = requests.post(url, headers=headers, data=json.dumps(payload))
+    
+    if response.status_code == 200:
+        result = response.json()
+        return result['choices'][0]['message']['content']
     else:
-        st.error("Please type something first!")
+        st.error(f"Error from OpenRouter: {response.text}")
+        return None
+
+# --- UI ---
+st.title("💡 Personal Idea Vault (Powered by OpenRouter)")
+st.write("No more Google Cloud headaches. Just type your idea below.")
+
+idea_text = st.text_area("What is your business idea?", placeholder="Type here...", height=150)
+
+if st.button("Generate Strategy"):
+    if idea_text:
+        with st.spinner("AI is working on your roadmap..."):
+            roadmap = get_roadmap_from_openrouter(idea_text)
+            
+            if roadmap:
+                st.subheader("Your AI Roadmap")
+                st.markdown(roadmap)
+                
+                # Download locally
+                st.download_button(
+                    label="📥 Save Idea to My Computer",
+                    data=f"IDEA:\n{idea_text}\n\nROADMAP:\n{roadmap}",
+                    file_name="my_idea_roadmap.txt",
+                    mime="text/plain"
+                )
+    else:
+        st.error("Please enter an idea first.")
+
+st.divider()
+st.caption("Simple setup. No logs kept. Download your ideas directly.")
