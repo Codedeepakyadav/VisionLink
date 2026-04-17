@@ -4,26 +4,30 @@ import json
 from datetime import datetime
 
 # --- SETUP ---
-st.set_page_config(page_title="Stable Idea Vault", page_icon="💡")
+st.set_page_config(page_title="Ultra Stable Idea Vault", page_icon="💡")
 
 if "OPENROUTER_API_KEY" not in st.secrets:
-    st.error("Please add OPENROUTER_API_KEY to your Streamlit Secrets!")
+    st.error("Add OPENROUTER_API_KEY in Streamlit Secrets!")
     st.stop()
 
 OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 
 def get_roadmap(idea):
-    url = "https://openrouter.ai/api/v1/chat/completions"
+    url = "https://openrouter.api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
+        "HTTP-Referer": "https://localhost:8501", # Required by some OpenRouter models
+        "X-Title": "Idea Vault App"
     }
     
-    # List of FREE models to try in order (if one fails, it tries the next)
+    # These are the CURRENT working Free IDs on OpenRouter
     models_to_try = [
-        "google/gemini-2.0-flash-lite-preview-02-05:free",
+        "google/gemini-2.0-flash-001:free",
+        "google/gemini-2.0-pro-exp-02-05:free",
         "deepseek/deepseek-r1:free",
-        "google/gemini-2.0-flash-exp:free"
+        "qwen/qwen-2.5-72b-instruct:free",
+        "microsoft/phi-3-medium-128k-instruct:free"
     ]
     
     last_error = ""
@@ -32,48 +36,45 @@ def get_roadmap(idea):
         payload = {
             "model": model,
             "messages": [
-                {"role": "user", "content": f"Provide a practical business roadmap for this idea in Hinglish (Hindi+English): {idea}"}
+                {"role": "user", "content": f"Create a short business roadmap for this idea in Hinglish: {idea}"}
             ],
-            "max_tokens": 1000 # Keep it low so it stays free
+            "max_tokens": 800  # Low token count prevents 'credit' errors
         }
         
         try:
-            response = requests.post(url, headers=headers, data=json.dumps(payload))
+            response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
             res_json = response.json()
             
             if response.status_code == 200:
-                return res_json['choices'][0]['message']['content']
+                return res_json['choices'][0]['message']['content'], model
             else:
-                last_error = res_json.get('error', {}).get('message', 'Unknown error')
-                continue # Try the next model
+                last_error = f"{model}: {res_json.get('error', {}).get('message', 'Unknown error')}"
+                continue 
         except Exception as e:
             last_error = str(e)
             continue
             
-    st.error(f"All free models failed. Last Error: {last_error}")
-    return None
+    st.error(f"All free models are currently busy or IDs changed. \n\nLast Log: {last_error}")
+    return None, None
 
 # --- UI ---
 st.title("💡 Personal Idea Vault")
-st.write("Using OpenRouter Free models with auto-fallback.")
+st.write("Generating roadmaps using OpenRouter Free Tier.")
 
-idea_input = st.text_area("What's the idea?", placeholder="Type here...", height=150)
+idea_input = st.text_area("Your Idea:", placeholder="Write your thought here...", height=100)
 
 if st.button("Generate Strategy"):
     if idea_input:
-        with st.spinner("AI is brainstorming (trying free models)..."):
-            roadmap = get_roadmap(idea_input)
+        with st.spinner("Searching for a free AI model..."):
+            roadmap, used_model = get_roadmap(idea_input)
             if roadmap:
-                st.subheader("Your AI Roadmap")
+                st.success(f"Generated using: {used_model}")
+                st.markdown("---")
                 st.markdown(roadmap)
                 
-                st.download_button(
-                    label="📥 Save to My Device",
-                    data=f"IDEA: {idea_input}\n\nSTRATEGY:\n{roadmap}",
-                    file_name="roadmap.txt"
-                )
+                st.download_button("📥 Save Roadmap", roadmap, file_name="idea.txt")
     else:
-        st.error("Enter something first!")
+        st.error("Please enter your idea first.")
 
 st.divider()
-st.caption("Auto-switches between Gemini and DeepSeek free models.")
+st.info("Tip: If it fails, wait 30 seconds and try again. Free models have strict rate limits.")
